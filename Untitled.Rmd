@@ -1,0 +1,115 @@
+---
+title: "Untitled"
+author: "Marco Ramos"
+date: "8/23/2021"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = F)
+```
+
+```{bash}
+curl 'https://www.banxico.org.mx/pubDGOBC-web/Publicador' \
+  -H 'Connection: keep-alive' \
+  -H 'sec-ch-ua: "Chromium";v="92", " Not A;Brand";v="99", "Google Chrome";v="92"' \
+  -H 'Accept: */*' \
+  -H 'X-Requested-With: XMLHttpRequest' \
+  -H 'sec-ch-ua-mobile: ?0' \
+  -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36' \
+  -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
+  -H 'Origin: https://www.banxico.org.mx' \
+  -H 'Sec-Fetch-Site: same-origin' \
+  -H 'Sec-Fetch-Mode: cors' \
+  -H 'Sec-Fetch-Dest: empty' \
+  -H 'Referer: https://www.banxico.org.mx/apps/dao-web/4/54/4/convocatoriagubernamental.html' \
+  -H 'Accept-Language: en-US,en;q=0.9' \
+  -H 'Cookie: _ga=GA1.3.1304681785.1629745577; _gid=GA1.3.1428730957.1629745577; ser39407102=810436266.48667.0000; TS012f422b=01ab44a5a81617be1f610bf0d5bd495abc4bdaa3cbb1be1fc21caf831dad8f6199656e7700b7812ec4833c485a0cb54f48af11922a1d297e094bcada73c4dbcaa344fef2a0' \
+  --data-raw 'idioma=E&formato=200&formatoEnvio=202&publicacion=3' \
+  --compressed -o output.txt 
+```
+
+```{r }
+library(readr)
+library(stringr)
+data<- "output.txt"
+
+#cleaning
+imported_text <- read_file(paste0(data))  
+expresion<-"\\[\\[.*\\]\\]"
+raw<-str_match(imported_text,expresion)
+raw<-gsub("\\[|\\]", "", raw)
+raw<-strsplit(raw, "\",\"")
+
+#transformation
+tabla <- matrix(raw[[1]],ncol=7, byrow = TRUE)
+df <- as.data.frame(tabla)
+df[]<-lapply(df, gsub, pattern='"', replacement='')
+names(df) <- c("Titulo","Tipo","Monto", "Clave Emision","Plazo(dias)","TasaInteres","DiasTransCuponVig")
+```
+
+```{r }
+library(shiny)
+
+ui <- fluidPage(
+    
+    # App title ----
+    titlePanel("Downloading Data"),
+    
+    # Sidebar layout with input and output definitions ----
+    sidebarLayout(
+        
+        # Sidebar panel for inputs ----
+        sidebarPanel(
+            
+            # Input: Choose dataset ----
+            selectInput("dataset", "Choose a dataset:",
+                        choices = c("banxico")),
+            
+            # Button
+            downloadButton("downloadData", "Download")
+            
+        ),
+        
+        # Main panel for displaying outputs ----
+        mainPanel(
+            
+            tableOutput("table")
+            
+        )
+        
+    )
+)
+
+server <- function(input, output) {
+    
+    # Reactive value for selected dataset ----
+    datasetInput <- reactive({
+        switch(input$dataset,
+               "banxico" = df)
+    })
+    
+    # Table of selected dataset ----
+    output$table <- renderTable({
+        datasetInput()
+    })
+    
+    # Downloadable csv of selected dataset ----
+    output$downloadData <- downloadHandler(
+        filename = function() {
+            paste(input$dataset, ".csv", sep = "")
+        },
+        content = function(file) {
+            write.csv(datasetInput(), file, row.names = FALSE)
+        }
+    )
+    
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server,options = list(height = 500))
+
+
+
+```
