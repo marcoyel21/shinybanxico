@@ -1,7 +1,7 @@
 ---
-title: "Untitled"
-author: "Marco Ramos"
-date: "8/23/2021"
+title: "Subastas Banxico"
+author: "Infosel-DCR"
+date: "`r Sys.Date()`"
 output: html_document
 runtime: shiny
 ---
@@ -10,44 +10,6 @@ runtime: shiny
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = F)
 ```
 
-```{bash}
-curl 'https://www.banxico.org.mx/pubDGOBC-web/Publicador' \
-  -H 'Connection: keep-alive' \
-  -H 'sec-ch-ua: "Chromium";v="92", " Not A;Brand";v="99", "Google Chrome";v="92"' \
-  -H 'Accept: */*' \
-  -H 'X-Requested-With: XMLHttpRequest' \
-  -H 'sec-ch-ua-mobile: ?0' \
-  -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36' \
-  -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
-  -H 'Origin: https://www.banxico.org.mx' \
-  -H 'Sec-Fetch-Site: same-origin' \
-  -H 'Sec-Fetch-Mode: cors' \
-  -H 'Sec-Fetch-Dest: empty' \
-  -H 'Referer: https://www.banxico.org.mx/apps/dao-web/4/54/4/convocatoriagubernamental.html' \
-  -H 'Accept-Language: en-US,en;q=0.9' \
-  -H 'Cookie: _ga=GA1.3.1304681785.1629745577; _gid=GA1.3.1428730957.1629745577; ser39407102=810436266.48667.0000; TS012f422b=01ab44a5a81617be1f610bf0d5bd495abc4bdaa3cbb1be1fc21caf831dad8f6199656e7700b7812ec4833c485a0cb54f48af11922a1d297e094bcada73c4dbcaa344fef2a0' \
-  --data-raw 'idioma=E&formato=200&formatoEnvio=202&publicacion=3' \
-  --compressed -o output.txt 
-```
-
-```{r }
-library(readr)
-library(stringr)
-data<- "output.txt"
-
-#cleaning
-imported_text <- read_file(paste0(data))  
-expresion<-"\\[\\[.*\\]\\]"
-raw<-str_match(imported_text,expresion)
-raw<-gsub("\\[|\\]", "", raw)
-raw<-strsplit(raw, "\",\"")
-
-#transformation
-tabla <- matrix(raw[[1]],ncol=7, byrow = TRUE)
-df <- as.data.frame(tabla)
-df[]<-lapply(df, gsub, pattern='"', replacement='')
-names(df) <- c("Titulo","Tipo","Monto", "Clave Emision","Plazo(dias)","TasaInteres","DiasTransCuponVig")
-```
 
 ```{r }
 library(shiny)
@@ -65,7 +27,7 @@ ui <- fluidPage(
             
             # Input: Choose dataset ----
             selectInput("dataset", "Choose a dataset:",
-                        choices = c("banxico")),
+                        choices = c("IPAB","Valores gubernamentales")),
             
             # Button
             downloadButton("downloadData", "Download")
@@ -83,11 +45,83 @@ ui <- fluidPage(
 )
 
 server <- function(input, output) {
-    
+library(stringr)
+library(stringi)
+library(dplyr)
+library(rvest)
+library(xml2)
+library(dplyr)
+library(readr)
+  
+# script IPAB
+## Request
+url <- "https://www.banxico.org.mx/apps/dao-web/4/35/convipabpubnew-1.html"
+info <- url %>% read_html() %>%
+  html_text()
+
+## Extraccion
+date_arpoon<-"[0-9]{2}[ ]{1,5}.*[0-9]{4}"
+publicacion<-str_extract(info,date_arpoon)
+colocacion<-stri_extract_last(info,regex=date_arpoon)
+
+## Orden
+data<-str_extract(info,pattern=regex("Título(.*)U:",dotall=T)) %>% 
+  str_remove("\n\nU:") %>%strsplit("\n")
+tabla <- matrix(data[[1]],ncol=8, byrow = TRUE)
+ipab <- as.data.frame(tabla)
+globalnames<-ipab[1,]
+names(ipab) <- globalnames
+ipab <- ipab[-1,]
+ipab<-ipab %>% mutate(publicacion=publicacion,
+                      colocacion=colocacion)
+
+#SCRIPT valores gub
+
+## REQUEST
+x<-"curl \'https://www.banxico.org.mx/pubDGOBC-web/Publicador\' \\
+-H \'Connection: keep-alive\' \\
+-H \'sec-ch-ua: \"Chromium\";v=\"92\", \" Not A;Brand\";v=\"99\", \"Google Chrome\";v=\"92\"\' \\
+-H \'Accept: */*\' \\
+-H \'X-Requested-With: XMLHttpRequest\' \\
+-H \'sec-ch-ua-mobile: ?0\' \\
+-H \'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Safari/537.36\' \\
+-H \'Content-Type: application/x-www-form-urlencoded; charset=UTF-8\' \\
+-H \'Origin: https://www.banxico.org.mx\' \\
+-H \'Sec-Fetch-Site: same-origin\' \\
+-H \'Sec-Fetch-Mode: cors\' \\
+-H \'Sec-Fetch-Dest: empty\' \\
+-H \'Referer: https://www.banxico.org.mx/apps/dao-web/4/54/4/convocatoriagubernamental.html\' \\
+-H \'Accept-Language: en-US,en;q=0.9\' \\
+-H \'Cookie: _ga=GA1.3.1304681785.1629745577; _gid=GA1.3.1428730957.1629745577; ser39407102=810436266.48667.0000; TS012f422b=01ab44a5a81617be1f610bf0d5bd495abc4bdaa3cbb1be1fc21caf831dad8f6199656e7700b7812ec4833c485a0cb54f48af11922a1d297e094bcada73c4dbcaa344fef2a0\' \\
+--data-raw \'idioma=E&formato=200&formatoEnvio=202&publicacion=3\' \\
+--compressed"
+stringx<-system(x,intern=T)
+
+#Extraction
+imported_text <- stringx  
+expresion<-"\\[\\[.*\\]\\]"
+raw<-str_match(imported_text,expresion)
+raw<-gsub("\\[|\\]", "", raw)
+raw<-strsplit(raw, "\",\"")
+
+#transformation
+tabla <- matrix(raw[[1]],ncol=7, byrow = TRUE)
+valores_gub <- as.data.frame(tabla)
+valores_gub[]<-lapply(valores_gub, gsub, pattern='"', replacement='')
+globalnames_valores_gub<- globalnames
+globalnames_valores_gub$V2<-NULL
+names(valores_gub) <- globalnames_valores_gub
+valores_gub<-valores_gub %>% mutate(publicacion=publicacion,
+                      colocacion=colocacion)
+
+  
+  
+
     # Reactive value for selected dataset ----
     datasetInput <- reactive({
         switch(input$dataset,
-               "banxico" = df)
+               "IPAB" = ipab,
+               "Valores gubernamentales"= valores_gub)
     })
     
     # Table of selected dataset ----
@@ -109,7 +143,5 @@ server <- function(input, output) {
 
 # Run the application 
 shinyApp(ui = ui, server = server,options = list(height = 500))
-
-
 
 ```
